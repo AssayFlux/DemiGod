@@ -1,61 +1,84 @@
 """Experimental, opt-in AirLLM host bridge for DemiGod.
 
-This service is deliberately bound to loopback by default. It is not an Android
-runtime and it does not claim Qwen3-Coder-Next compatibility until a smoke test passes.
+Host-only research adapter. It is not an Android runtime. It loads only a local,
+revision-pinned snapshot; model loading may execute model-side Python code through
+the current AirLLM/Transformers stack, so use an isolated environment.
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
 
 MODEL_ID = os.getenv("DEMIGOD_MODEL_ID", "Qwen/Qwen3-Coder-Next")
+MODEL_PATH = Path(os.getenv("DEMIGOD_MODEL_PATH", "")).expanduser()
 MODEL_REVISION = os.getenv("DEMIGOD_MODEL_REVISION", "")
 MODEL_CACHE = os.getenv("DEMIGOD_MODEL_CACHE", "./model-cache")
 HOST = os.getenv("DEMIGOD_HOST", "127.0.0.1")
 PORT = int(os.getenv("DEMIGOD_PORT", "8765"))
 API_TOKEN = os.getenv("DEMIGOD_API_TOKEN", "")
 MAX_NEW_TOKENS = int(os.getenv("DEMIGOD_MAX_NEW_TOKENS", "512"))
+MAX_CONTEXT_TOKENS = int(os.getenv("DEMIGOD_MAX_CONTEXT_TOKENS", "4096"))
 MAX_INPUT_CHARS = int(os.getenv("DEMIGOD_MAX_INPUT_CHARS", "24000"))
+ALLOW_CPU = os.getenv("DEMIGOD_ALLOW_CPU", "0") == "1"
 
 _model: Any = None
-_load_error: str | None = None
 _model_lock = threading.Lock()
+_generation_lock = threading.Lock()
+_model_architecture = "unknown"
+_load_error: str | None = None
 
 
 def _load_model() -> Any:
-    global _model, _load_error
+    global _model, _model_architecture, _load_error
     with _model_lock:
         if _model is not None:
             return _model
         if _load_error:
             raise RuntimeError(_load_error)
         try:
+            if not MODEL_REVISION:
+                raise RuntimeError("Set DEMIGOD_MODEL_REVISION to the exact Hugging Face commit SHA.")
+            if not MODEL_PATH.is_dir() or not (MODEL_PATH / "config.json").is_file():
+                raise RuntimeError(
+                    "DEMIGOD_MODEL_PATH must point to a locally downloaded model snapshot containing config.json."
+                )
+
+            config = json.loads((MODEL_PATH / "config.json").read_text(encoding="utf-8"))
+            architectures = config.get("architectures") or []
+            _model_architecture = architectures[0] if architectures else str(config.get("model_type", "unknown"))
+
             import torch
             from airllm import AutoModel
 
-            if not torch.cuda.is_available():
+            if not torch.cuda.is_available() and not ALLOW_CPU:
                 raise RuntimeError(
-                    "No CUDA device detected. This experimental harness currently "
-                    "requires a CUDA host; it is not intended to run on the Android phone."
+                    "No CUDA device detected. Set DEMIGOD_ALLOW_CPU=1 only if the host has "
+                    "enough system RAM; CPU inference for this model may be impractically slow."
                 )
-            kwargs: dict[str, Any] = {"layer_shards_saving_path": MODEL_CACHE}
-            if MODEL_REVISION:
-                kwargs["revision"] = MODEL_REVISION
-            _model = AutoModel.from_pretrained(MODEL_ID, **kwargs)
+
+            # AirLLM's AutoModel currently resolves its model config independently of the
+            # revision argument. Passing a pre-downloaded local snapshot avoids an unpinned
+            # remote fetch during initialization.
+            _model = AutoModel.from_pretrained(
+                str(MODEL_PATH),
+                layer_shards_saving_path=MODEL_CACHE,
+                max_seq_len=MAX_CONTEXT_TOKENS,
+            )
+            print(f"[demigod-airllm] loaded architecture={_model_architecture} device={_model.device}")
             return _model
-        except Exception as exc:  # surfaced through /health and API errors
+        except Exception as exc:
             _load_error = f"{type(exc).__name__}: {exc}"
             raise RuntimeError(_load_error) from exc
 
 
 def _complete(messages: list[dict[str, str]], max_tokens: int) -> str:
-    import torch
-
     model = _load_model()
     tokenizer = model.tokenizer
     prompt = tokenizer.apply_chat_template(
@@ -63,17 +86,17 @@ def _complete(messages: list[dict[str, str]], max_tokens: int) -> str:
     )
     if len(prompt) > MAX_INPUT_CHARS:
         raise ValueError(f"Prompt exceeds configured limit ({MAX_INPUT_CHARS} characters)")
+
     inputs = tokenizer(
         [prompt],
         return_tensors="pt",
+        return_attention_mask=False,
         truncation=True,
-        max_length=8192,
+        max_length=MAX_CONTEXT_TOKENS,
         padding=False,
     )
-    device = torch.device("cuda")
-    input_ids = inputs["input_ids"].to(device)
-    started = time.monotonic()
-    with torch.inference_mode():
+    input_ids = inputs["input_ids"].to(model.device)
+    with _generation_lock, __import__("torch").inference_mode():
         output = model.generate(
             input_ids,
             max_new_tokens=max(1, min(max_tokens, MAX_NEW_TOKENS)),
@@ -81,14 +104,14 @@ def _complete(messages: list[dict[str, str]], max_tokens: int) -> str:
             return_dict_in_generate=True,
         )
     generated = output.sequences[0][input_ids.shape[-1]:]
-    text = tokenizer.decode(generated, skip_special_tokens=True)
-    if not text.strip():
+    answer = tokenizer.decode(generated, skip_special_tokens=True)
+    if not answer.strip():
         raise RuntimeError("Model returned an empty completion")
-    return text
+    return answer
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "DemiGodAirLLM/0.1"
+    server_version = "DemiGodAirLLM/0.2"
 
     def _send(self, status: int, payload: dict[str, Any]) -> None:
         body = json.dumps(payload).encode("utf-8")
@@ -100,12 +123,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self) -> bool:
-        if not API_TOKEN:
-            self._send(503, {"error": "Set DEMIGOD_API_TOKEN before starting the host bridge."})
-            return False
         supplied = self.headers.get("Authorization", "")
-        if supplied != f"Bearer {API_TOKEN}":
-            self._send(401, {"error": "Unauthorized"})
+        expected = f"Bearer {API_TOKEN}"
+        if not API_TOKEN or not hmac.compare_digest(supplied, expected):
+            self._send(401, {"error": "Unauthorized or host API token is not configured."})
             return False
         return True
 
@@ -114,7 +135,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {
                 "status": "ready" if _model is not None else "model_not_loaded",
                 "model": MODEL_ID,
-                "model_revision_pinned": bool(MODEL_REVISION),
+                "architecture": _model_architecture,
+                "local_snapshot_configured": bool(str(MODEL_PATH)),
+                "revision_label_configured": bool(MODEL_REVISION),
                 "load_error": _load_error,
                 "android_runtime": False,
             })
@@ -139,16 +162,23 @@ class Handler(BaseHTTPRequestHandler):
             if length <= 0 or length > 1_000_000:
                 raise ValueError("Invalid request body size")
             payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("Request body must be a JSON object")
+            if payload.get("stream", False):
+                raise ValueError("Streaming is not implemented by this first host bridge.")
             messages = payload.get("messages")
             if not isinstance(messages, list) or not messages:
                 raise ValueError("messages must be a non-empty array")
+
             normalized = []
             for item in messages:
-                role = item.get("role")
-                content = item.get("content")
+                if not isinstance(item, dict):
+                    raise ValueError("Each message must be an object")
+                role, content = item.get("role"), item.get("content")
                 if role not in {"system", "user", "assistant"} or not isinstance(content, str):
                     raise ValueError("Only text system/user/assistant messages are supported")
                 normalized.append({"role": role, "content": content})
+
             answer = _complete(normalized, int(payload.get("max_tokens", 256)))
             self._send(200, {
                 "id": f"chatcmpl-{uuid.uuid4().hex}",
@@ -161,10 +191,11 @@ class Handler(BaseHTTPRequestHandler):
                     "finish_reason": "stop",
                 }],
             })
-        except ValueError as exc:
+        except (ValueError, json.JSONDecodeError) as exc:
             self._send(400, {"error": str(exc)})
         except Exception as exc:
-            self._send(503, {"error": f"Inference unavailable: {type(exc).__name__}: {exc}"})
+            print(f"[demigod-airllm] inference error: {type(exc).__name__}: {exc}")
+            self._send(503, {"error": "Inference unavailable; inspect the host log for details."})
 
     def log_message(self, fmt: str, *args: Any) -> None:
         print(f"[demigod-airllm] {fmt % args}")
@@ -173,11 +204,15 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     if not API_TOKEN:
         raise SystemExit("Refusing to start without DEMIGOD_API_TOKEN.")
+    if not MODEL_REVISION:
+        raise SystemExit("Refusing to start without a pinned DEMIGOD_MODEL_REVISION.")
+    if not str(MODEL_PATH):
+        raise SystemExit("Set DEMIGOD_MODEL_PATH to a local, pinned model snapshot.")
     if HOST not in {"127.0.0.1", "localhost"}:
         print("WARNING: non-loopback bind requested. Use a trusted private network and TLS tunnel.")
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"DemiGod AirLLM experiment listening on http://{HOST}:{PORT}")
-    print(f"Model: {MODEL_ID}; pinned revision: {bool(MODEL_REVISION)}")
+    print(f"Model: {MODEL_ID}; revision label: {MODEL_REVISION}; snapshot: {MODEL_PATH}")
     server.serve_forever()
 
 
