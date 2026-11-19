@@ -1,139 +1,57 @@
-# 480B Flagship Target: Qwen3-Coder-480B-A35B-Instruct
+# Flagship Model Target: Qwen3-Coder-Next
 
-**Status:** Selected flagship research target  
-**Date:** 2026-11-19  
-**Scope:** Product target and feasibility constraints, not a claim of successful Android deployment.
+**Status:** Selected research target; runtime feasibility unproven  
+**Decision:** [ADR-0003](../decisions/ADR-0003-qwen3-coder-next-flagship.md)
+
+> Historical filename retained to avoid breaking existing links. The previous 480B target is superseded.
 
 ## 1. Selected model
+- Model: [Qwen/Qwen3-Coder-Next](https://huggingface.co/Qwen/Qwen3-Coder-Next)
+- Official GGUF: [Qwen/Qwen3-Coder-Next-GGUF](https://huggingface.co/Qwen/Qwen3-Coder-Next-GGUF)
+- 80B total parameters; approximately 3B activated per token.
+- 48 hybrid Gated DeltaNet/Gated Attention layers.
+- 512 experts; 10 routed experts plus one shared expert.
+- Native context: 262,144 tokens.
+- Apache-2.0 license shown on the model card.
 
-DemiGod's flagship target is **Qwen/Qwen3-Coder-480B-A35B-Instruct**.
+Verify against the exact pinned revision. These are model-card facts, not performance guarantees.
 
-Official model-card facts:
-- 480 billion total parameters.
-- 35 billion active parameters per token.
-- Mixture-of-Experts architecture.
-- 160 experts, 8 activated experts.
-- 62 layers.
-- 96 query heads and 8 key/value heads.
-- Native context length: 262,144 tokens.
-- Non-thinking instruction model.
+## 2. Total versus active parameters
+Sparse activation may reduce per-token compute. It does not mean only 3B weights must exist. Full checkpoint and routed experts must be available. Storage is determined by the full artifact and quantization.
 
-Source: https://huggingface.co/Qwen/Qwen3-Coder-480B-A35B-Instruct
+First-order decimal estimates for 80B parameters:
+- BF16/FP16: approximately 160 GB.
+- 8-bit: approximately 80 GB before metadata/overhead.
+- 5-bit: approximately 50 GB before scales, block metadata, alignment and mixed tensor precision.
+- 4-bit: approximately 40 GB before overhead.
 
-Pin the exact checkpoint revision, tokenizer, chat template, license and source hashes before approving a model package.
+These are arithmetic estimates, not downloadable file sizes. The official GGUF repository documents a Q5_K_M example; measure exact shard sizes and hashes before storage planning.
 
-## 2. Product decision
+## 3. Separate backend tracks
 
-The 480B model is the flagship target. DemiGod's architecture, storage catalog, read scheduler, quantization evaluation and benchmark plan must account for the entire 480B checkpoint.
+### AirLLM / Transformers
+AirLLM is Python/PyTorch layer-streaming inference. Its README describes broad Qwen-family support, but generic support is not proof of this exact model's compatibility.
 
-This decision does **not** mean:
-- the full model fits on the 128 GB microSD;
-- the model can run at useful speed on an arbitrary Android phone;
-- 35B active parameters means only 35B need to be stored;
-- external SSD storage substitutes for RAM or accelerator memory;
-- a low-bit quantization is automatically accurate enough for coding.
+Required proof: pin AirLLM/Transformers; load official Transformers checkpoint; verify hybrid DeltaNet recurrent state and attention state over prefill and multi-token decode; compare logits/output with trusted reference; test tokenizer/template/tool calls; measure host RAM, accelerator memory, disk staging, bytes read/token and speed.
 
-The complete checkpoint contains all experts and shared weights. The runtime may access only selected experts for a token, but those expert weights still need to be stored and made available.
+Do not feed GGUF to AirLLM. This is host-side research, not Android-native inference.
 
-## 3. Theoretical weight-size arithmetic
+### GGUF / llama.cpp
+Official Qwen GGUF repository documents Q5_K_M and llama.cpp usage. Pin shards/hashes and llama.cpp revision; validate all hybrid operators, recurrent state, chat template, tool calls, context and multi-turn output. Measure memory, I/O, tokens/sec, power and thermals.
 
-First-order lower-bound estimate:
+Host llama.cpp success does not prove Android/JNI/ABI/accelerator or SAF storage support.
 
-weight bytes = parameter count × bits per parameter / 8
+## 4. Android reality
+Reported phone: 11 GB RAM and 256 GB internal storage; exact phone model, SoC and external drive remain unknown. The full 80B checkpoint cannot be assumed to fit RAM. Low-GPU-memory AirLLM demonstrations do not imply low total host memory or Android compatibility. Disk does not replace memory bandwidth, compute, state cache or thermal headroom.
 
-Using 480,000,000,000 parameters and decimal GB:
+Policy: use a smaller verified model for daily Android; Qwen3-Coder-Next is a host/server experiment first. No promise of local 80B inference on the phone.
 
-| Nominal precision | Theoretical weight payload |
-|---|---:|
-| 16-bit | 960 GB |
-| 8-bit | 480 GB |
-| 4-bit | 240 GB |
-| 3-bit | 180 GB |
-| 2-bit | 120 GB |
-| 1-bit | 60 GB |
+## 5. Feasibility gates
+- F0: exact revision, license, tokenizer/template, config, shards and hashes.
+- F1: AirLLM and GGUF/llama.cpp tested independently.
+- F2: tensor/logit checks, recurrent state, multi-turn and tool-call correctness.
+- F3: disk, host RAM, accelerator memory, context/state memory and I/O profile.
+- F4: repository tasks, patch correctness, tests and tool reliability.
+- F5: Android runtime, named phone, sustained speed, battery and thermals.
 
-These are arithmetic estimates, **not promised downloadable file sizes**. Real packages include quantization scales, block metadata, alignment, tensor-specific precision, tokenizer/configuration and possibly auxiliary tensors. Actual quantized file size must be measured from the exact checkpoint.
-
-The official vLLM recipe describes server-scale deployments and lists approximately 1,152 GB for BF16, 576 GB for FP8 and 288 GB for NVFP4 in its deployment configurations. These are not Android requirements, but they demonstrate that ordinary supported deployments are currently server-class.
-
-Source: https://github.com/vllm-project/recipes/blob/main/models/Qwen/Qwen3-Coder-480B-A35B-Instruct.yaml
-
-## 4. Storage implications
-
-Known user storage:
-- 128 GB nominal microSD.
-- USB-C external SSD, capacity not yet specified.
-- Phone internal storage is not a model-capacity target.
-
-Consequences:
-- The 128 GB microSD cannot be assumed to hold a complete 480B package. Even the theoretical 2-bit payload is 120 GB before overhead and free-space reserve.
-- The USB-C SSD is the required primary candidate for a complete 480B package.
-- A 256 GB SSD may be sufficient for some 2-bit/3-bit artifacts, depending on actual file size and free-space reserve.
-- A 512 GB SSD is a more sensible initial capacity target for experimenting with 4-bit artifacts and working room; it is not a performance guarantee.
-- Do not split shards across microSD and SSD in the first prototype. Keep one complete model package on one volume unless multi-volume operation is deliberately implemented and tested.
-
-Do not buy storage based only on theoretical bit-width arithmetic. First obtain exact quantized artifact sizes, confirm SSD capacity and filesystem, and reserve free space.
-
-## 5. The critical I/O problem
-
-The model has 35B active parameters per token. A rough active-weight traffic estimate, if those weights must be fetched from storage for every generated token, is:
-
-| Active-weight precision | Approximate active payload per token |
-|---|---:|
-| 4-bit | 17.5 GB/token |
-| 3-bit | 13.125 GB/token |
-| 2-bit | 8.75 GB/token |
-| 1-bit | 4.375 GB/token |
-
-This simplified estimate derives from active parameter count. Actual traffic depends on tensor layout, quantization, cache reuse, shared weights, routing, read amplification and runtime implementation.
-
-This table exposes the central problem: **storage capacity is not inference throughput**. Re-reading multi-gigabyte active weights for each token from a removable SSD is likely to be extremely slow. A layer-at-a-time design reduces peak RAM but does not automatically eliminate repeated I/O across token steps.
-
-The research plan must therefore optimize:
-1. Keep reusable weights in RAM/accelerator memory where possible.
-2. Keep selected expert weights hot when routing locality makes reuse likely.
-3. Load by layer and expert with bounded buffers, not the entire checkpoint.
-4. Prefetch only when measured predictions reduce stalls.
-5. Reduce bytes read through validated quantization and tensor layouts.
-6. Measure actual bytes read per generated token, not only nominal model size.
-7. Establish a minimum useful tokens/sec threshold before declaring a phone configuration supported.
-
-Even a fast external SSD cannot make this problem disappear. Phone USB bandwidth, memory copies, compute speed, heat and battery are additional bottlenecks.
-
-## 6. Accuracy is a hard constraint
-
-Quantization must be evaluated on coding tasks, not selected by smallest file size. Compare candidate bit widths and formats against a trusted reference checkpoint using:
-- code generation and patch correctness;
-- repository-level edit tasks;
-- compilation and test pass rates;
-- tool-call and structured-output validity;
-- long-context retrieval and instruction adherence;
-- perplexity or log-likelihood where applicable;
-- output stability across repeated runs.
-
-A smaller artifact that breaks code correctness is not an acceptable optimization. Keep a documented quality/performance frontier and do not promote an experimental quantization as production-ready without evidence.
-
-## 7. Feasibility gates
-
-- **G0 — Artifact audit:** exact official checkpoint, file inventory, licensing, architecture, tokenizer and hash inventory.
-- **G1 — Quantization audit:** reproducible quantized candidates; exact file sizes, format compatibility and coding-quality deltas.
-- **G2 — Read-path proof:** indexed reads and correct tensor materialization from SSD on Android or a representative host harness.
-- **G3 — Runtime proof:** validate router/expert dispatch, tensor correctness and one complete forward pass using bounded memory.
-- **G4 — Token-generation proof:** produce correct multi-token output with measured storage traffic, latency, memory and thermal behavior.
-- **G5 — Mobile usefulness:** meet a published minimum tokens/sec and sustained thermal/power envelope on a named phone model.
-
-A failure at a gate is a result, not a reason to hide the limitation. Continue research or revise the supported-device claim; do not label the 480B mobile target complete prematurely.
-
-## 8. Architecture consequence
-
-DemiGod should be designed as a storage-backed inference research system with:
-- model manifest and tensor/expert index;
-- Android storage adapters for microSD and SAF-granted USB SSD;
-- quantization-aware tensor readers;
-- bounded RAM/accelerator cache;
-- layer/expert read scheduler;
-- I/O/compute telemetry;
-- integrity and interruption recovery;
-- pluggable execution backend.
-
-The design must remain honest about the possibility that a phone can store the 480B model but cannot generate tokens from it at useful speed. The first engineering task is to prove the read path and establish a measured lower bound—not to promise a finished phone experience.
+Record failed gates honestly. Never substitute another model/backend and call it Qwen3-Coder-Next support.

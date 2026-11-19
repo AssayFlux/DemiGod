@@ -1,10 +1,8 @@
-# ADR-0002: Select Qwen3-Coder-480B-A35B-Instruct as DemiGod Flagship
+# ADR-0002: Previous Qwen3-Coder-480B-A35B-Instruct Target
 
-- **Status:** Accepted target; feasibility unproven.
+- **Status:** Superseded by [ADR-0003](ADR-0003-qwen3-coder-next-flagship.md).
 - **Date:** 2026-11-19
-- **Decision:** DemiGod's flagship research target is Qwen3-Coder-480B-A35B-Instruct (480B total, 35B active, MoE).
-- **Reason:** The project owner explicitly selected the 480B-parameter coding model. Storage, quantization, indexing, expert scheduling and benchmark work must be designed around the complete checkpoint.
-- **Constraints:** 35B active does not mean 35B total storage. All model weights must be available. A 128 GB microSD is not a safe complete-model target. The USB-C SSD is the primary candidate, but capacity is unknown. External storage does not replace RAM, bandwidth or compute.
-- **Feasibility caveat:** Practical on-phone token generation is not established. The project must pass artifact, quantization, read-path, runtime, generation and sustained mobile-use gates before claiming support.
-- **Validation:** Use exact model revision, tensor inventory, hashes, reference tensor/logit comparisons, coding benchmarks, bytes-read-per-token, latency, memory, energy and thermal measurements.
-- **Sources:** Official model card https://huggingface.co/Qwen/Qwen3-Coder-480B-A35B-Instruct ; vLLM deployment recipe https://github.com/vllm-project/recipes/blob/main/models/Qwen/Qwen3-Coder-480B-A35B-Instruct.yaml
+- **Historical decision:** The project previously selected Qwen3-Coder-480B-A35B-Instruct as flagship research target.
+- **Supersession:** The project owner subsequently selected Qwen3-Coder-Next. Product direction now prioritizes coding-agent workflow quality and separately testable model/backend architecture.
+- **Historical constraints:** The 480B total / 35B active target was not demonstrated on Android. Its storage and resource needs were not a realistic default for the reported 11 GB RAM phone.
+- **Policy:** Retain for decision history; it is no longer the current model selection or roadmap target.

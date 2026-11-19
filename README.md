@@ -1,51 +1,36 @@
 # DemiGod
 
-DemiGod is an offline-first Android AI coding assistant. Its flagship research target is **Qwen3-Coder-480B-A35B-Instruct**. The goal is a polished, conversation-first Android APK with local model support and coding-agent workflows, plus optional GitHub and plugin connectivity when the user chooses to connect.
+DemiGod is an offline-first Android AI coding assistant. Its selected flagship coding-model target is **Qwen3-Coder-Next (80B total parameters, approximately 3B activated per token)**. The goal is a polished Android APK and a dependable coding-agent system that can inspect, edit, test and explain real projects.
 
 ## North Star
+Build a coding assistant whose quality comes from the complete engineering system—not model size alone: repository understanding, planning, safe tool use, patch review, execution, testing, recovery and clear reporting.
 
-DemiGod aims to combine the familiar, low-friction chat experience of leading AI assistants with the ability to inspect, edit, test and explain real software projects. The Android app is the primary product; the agent, model runtime, storage layer and plugins remain modular behind explicit interfaces.
+## Selected model strategy
+- **Flagship:** [Qwen3-Coder-Next](https://huggingface.co/Qwen/Qwen3-Coder-Next), 80B total / approximately 3B active, hybrid MoE coding-agent model with native 262,144-token context.
+- **GGUF experiment:** [Official Qwen GGUF repository](https://huggingface.co/Qwen/Qwen3-Coder-Next-GGUF). It documents a Q5_K_M example for llama.cpp; exact artifacts and compatibility must be validated.
+- **AirLLM experiment:** separate Transformers/PyTorch host-side research. AirLLM is not Android-native and is not a GGUF loader.
+- **Daily Android profile:** a smaller model proven on the actual phone. Flagship support remains experimental until benchmarks establish otherwise.
+- Keep model providers and runtimes replaceable.
 
-## Project principles
-
-- Offline operation is the default; network access is optional, visible and permissioned.
-- The Android APK is the primary deliverable; Kotlin + Jetpack Compose is the default implementation direction.
-- Chat is the primary user experience, with coding-agent capabilities available progressively when needed.
-- The selected 480B checkpoint is the flagship research target; mobile feasibility must be proven, not assumed.
-- 480B total parameters and 35B active parameters are different from model storage, RAM use and compute requirements.
-- Model storage, Android storage access, model parsing and inference are separate layers.
-- AirLLM-style memory efficiency is a baseline inspiration, not a permanent dependency or a claim of equivalent implementation.
-- GitHub and other plugins are opt-in integrations with least-privilege permissions.
-- Model output and tool output are untrusted; consequential actions require user control and review.
-- Model support and performance must be proven on real devices.
-
-## Storage target
-
-The initial storage design targets a **128 GB microSD card** and a **USB-C external SSD**:
-- Internal app storage holds metadata, indexes, bounded caches and recovery state.
-- microSD provides persistent secondary model storage.
-- USB-C SSD is the preferred location for the complete 480B model artifact.
-- The runtime uses indexed reads and bounded streaming where the Android storage provider supports reliable random access.
-- Full-model extraction to internal storage is not a design requirement.
-
-The 128 GB microSD is not assumed to fit the complete 480B checkpoint. External storage does not replace RAM, memory bandwidth or compute. The 480B mobile target remains unproven until it passes tensor-read, inference, speed, power and thermal gates.
+## Principles
+- Offline operation is the default; network use is explicit and permissioned.
+- Android APK is the primary deliverable; Kotlin + Jetpack Compose is the default direction.
+- Total parameters, active parameters, weight storage, RAM/VRAM, context/state cache and compute are distinct.
+- 3B active does not mean only 3B weights need storage or that an 11 GB phone can load the model.
+- AirLLM reduces peak accelerator weight residency; it does not remove host RAM, I/O, state-cache, compute, thermal or bandwidth costs.
+- No model/device combination is supported without repeatable tests.
+- GitHub/plugins are opt-in and least-privilege.
 
 ## Documentation
-
-### Product and engineering direction
 - [North Star](docs/product/NORTH_STAR.md)
 - [Roadmap](docs/product/ROADMAP.md)
 - [Build Rules](docs/engineering/BUILD_RULES.md)
-
-### Model and storage architecture
-- [480B flagship target and feasibility gates](docs/architecture/FLAGSHIP_480B_TARGET.md)
-- [Model storage and streaming architecture](docs/architecture/MODEL_STORAGE_AND_STREAMING.md)
-- [480B model data-reading research plan](docs/research/480B_DATA_READING_PLAN.md)
-- [ADR-0001: Removable model storage and indexed streaming](docs/decisions/ADR-0001-removable-model-storage.md)
-- [ADR-0002: 480B flagship model decision](docs/decisions/ADR-0002-480B-flagship-target.md)
+- [Flagship target](docs/architecture/FLAGSHIP_480B_TARGET.md) (historical filename retained)
+- [Storage and streaming](docs/architecture/MODEL_STORAGE_AND_STREAMING.md)
+- [Qwen3-Coder-Next research plan](docs/research/480B_DATA_READING_PLAN.md) (historical filename retained)
+- [ADR-0001: Removable storage](docs/decisions/ADR-0001-removable-model-storage.md)
+- [ADR-0002: Previous 480B target — superseded](docs/decisions/ADR-0002-480B-flagship-target.md)
+- [ADR-0003: Qwen3-Coder-Next selection](docs/decisions/ADR-0003-qwen3-coder-next-flagship.md)
 
 ## Current status
-
-The repository contains architecture and research plans plus product direction. Runtime implementation, Android APK, supported-device matrix and benchmark evidence remain to be built. Design documents are not proof that the model already runs on a phone.
-
-See the [Roadmap](docs/product/ROADMAP.md) for the staged build sequence and [Build Rules](docs/engineering/BUILD_RULES.md) for contribution and safety requirements.
+This repository contains product, architecture and research documentation. It does not prove Qwen3-Coder-Next runs on Android or on the owner's phone. Audit model/runtime paths and benchmark a smaller local model while flagship feasibility research proceeds independently.

@@ -1,163 +1,56 @@
-# 480B Model Data-Reading Research Plan
+# Qwen3-Coder-Next and AirLLM Research Plan
 
-**Status:** Proposed research and implementation sequence  
-**Target:** Qwen3-Coder-480B-A35B-Instruct  
-**Primary storage candidate:** USB-C external SSD  
-**Secondary storage:** 128 GB microSD  
-**Runtime target:** Offline Android, with host-side test harnesses allowed during development.
+**Status:** Proposed research sequence  
+**Target:** Qwen/Qwen3-Coder-Next  
+**Backend tracks:** AirLLM/Transformers and GGUF/llama.cpp, tested separately
+
+> Historical filename retained for link stability; this replaces the former 480B plan.
 
 ## 1. Research question
+Can DemiGod run Qwen3-Coder-Next correctly and usefully through a memory-efficient backend, and what host/device profiles are required? Separate model correctness, backend compatibility, storage streaming and Android feasibility.
 
-Can DemiGod read the complete 480B MoE checkpoint from removable storage, materialize the correct tensors and execute token generation with bounded memory and useful performance on a specified Android device?
+## 2. Facts to pin
+Verify at exact revision: 80B total, approximately 3B active; 48 hybrid Gated DeltaNet/Gated Attention layers; 512 experts, 10 routed plus one shared; native 262,144 context; Apache-2.0 model-card license. Record config, tokenizer, chat template, generation defaults, shard inventory, sizes and SHA-256. Active parameter count is not storage size.
 
-Break this into independent questions:
-1. Can we identify and validate every tensor and expert in the checkpoint?
-2. Can we read required tensor ranges reliably from the selected USB storage provider?
-3. Can we map router decisions to the exact expert tensors required for each layer?
-4. Can the backend execute those tensors without requiring the entire checkpoint in RAM?
-5. Can enough weights remain cached to avoid intolerable repeated SSD reads?
-6. Can the phone sustain the resulting compute, memory and thermal load?
+## 3. Track A — AirLLM / Transformers
+AirLLM describes layer-wise model streaming and broad Qwen-family support. This is a host-side experiment, not proof of this exact model's compatibility.
 
-Do not conflate successful file reading with successful inference.
+1. Pin AirLLM, Transformers, PyTorch, Accelerate and compute stack.
+2. Start from official Transformers checkpoint, not GGUF.
+3. Verify model-class detection and layer offload behavior.
+4. Validate DeltaNet recurrent/convolution state and Gated Attention state across prefill and at least 100 decode steps.
+5. Ensure state is not reset between tokens or tool turns.
+6. Compare logits/output with trusted non-streaming reference.
+7. Validate tokenizer, template, tool calls, stop tokens and multi-turn behavior.
+8. Measure disk/cache footprint, host RAM, accelerator memory, bytes read/token, TTFT and sustained tokens/sec.
+9. Test multiple context sizes; 256K is a model ceiling, not a phone default.
 
-## 2. Model anatomy inventory
+Pass only with correct multi-token and multi-turn generation plus reproducible resource measurements.
 
-Before coding a scheduler, build a machine-readable model inventory from the pinned checkpoint:
-- model config and architecture identifier;
-- all tensor names, shapes, dtypes and byte ranges;
-- shared attention, normalization and embedding tensors;
-- router/gating tensors;
-- each layer's expert tensor mapping;
-- number and dimensions of experts per MoE layer;
-- output head and any tied-weight relationships;
-- tokenizer, special tokens and chat template;
-- shard-to-tensor mapping and exact file hashes.
+## 4. Track B — GGUF / llama.cpp
+Official Qwen GGUF repository documents Q5_K_M as a llama.cpp example.
 
-Cross-check the inventory against the official model configuration and a trusted reference implementation. Never infer tensor names or expert ordering from naming patterns alone.
+1. Pin GGUF shards, quant metadata and hashes.
+2. Pin llama.cpp commit, build flags and target ABI.
+3. Verify hybrid architecture operators and recurrent-state behavior.
+4. Test tokenizer/template and tool calls.
+5. Compare coding quality against reference.
+6. Measure RAM/accelerator allocation, file I/O, TTFT, tokens/sec, context and thermals.
+7. After host correctness, build Android/JNI prototype and test SAF-backed storage.
 
-Deliverable: model_inventory.json plus a validation report reconciling every tensor and shard.
+Do not pass GGUF files to AirLLM. These are separate tracks.
 
-## 3. Candidate read strategies
+## 5. Shared correctness suite
+Code completion; multi-file patch; repository Q&A; schema-valid tool calls; multi-step tool loop; multi-turn state persistence; deterministic output/logit comparison where possible; context truncation; cancellation and cleanup. Score patch correctness, compile/test pass rate, tool validity and repository-task success.
 
-Evaluate the following independently; do not assume one is best before benchmarking.
+## 6. Storage and memory experiments
+Measure full checkpoint and converted artifact size, temporary AirLLM decomposition/cache, bytes read/token, cache hit/eviction, host RAM, accelerator memory, context/recurrent state, p50/p95/p99 read latency, TTFT, sustained speed, energy and thermals. Layer streaming may reduce accelerator residency while repeated reads dominate decode.
 
-### A. Whole-checkpoint load
-Load all model weights into memory. This is a reference baseline only and is expected to exceed mobile resources. Use a capable host for correctness comparison if needed.
+## 7. Android feasibility ladder
+Host reference correctness; AirLLM host compatibility; GGUF host compatibility; Android runtime/operator support; SAF positional-read tests; small-context single-turn; multi-turn state; sustained speed/power/thermal on named phone; decision against published minimum useful speed. Reported phone is 11 GB RAM/256 GB storage; SoC and Android version unknown.
 
-### B. Layer-wise streaming
-Read a layer's required tensors into bounded buffers, execute that layer, then release/reuse buffers. Measure repeated reads across token steps. This controls peak memory but may cause large I/O per token.
+## 8. Go/no-go
+No backend support from successful weight loading alone. No AirLLM-to-Android claim from Python support. No GGUF claim without operator/state validation. No 256K promise without state-memory tests. No quantization chosen only for disk fit. If 11 GB RAM cannot sustain it, keep flagship host/server-side and ship smaller verified Android model.
 
-### C. Expert-wise streaming
-Keep shared layer tensors and selected expert tensors in a bounded cache. Fetch missing experts on demand. Record expert cache hit rate, misses, evictions and read bytes. The router's actual top-k output is authoritative.
-
-### D. Hybrid layer + expert cache
-Use a bounded layer working set, expert cache and prefetch queue. Tune cache size against available RAM/accelerator memory. Prevent prefetch from evicting tensors needed by active computation.
-
-### E. Selective persistent cache
-If the phone has sufficient memory, retain frequently reused shared tensors or experts across tokens. Cache decisions must be based on measured access frequency and memory pressure, not guesses.
-
-For each strategy, measure peak memory, bytes read per token, random-read latency, time-to-first-token and sustained tokens/sec.
-
-## 4. Read pipeline design
-
-1. **Resolve volume:** identify SSD and persisted SAF permission; verify expected volume identity.
-2. **Open package:** open shard handles through the storage adapter.
-3. **Validate:** check manifest, shard size, hash, tensor index and bounds.
-4. **Plan:** create an execution read plan from architecture and tensor inventory.
-5. **Route:** execute router/gating operations and obtain exact expert IDs for the current token/layer.
-6. **Schedule:** prioritize mandatory reads; prefetch only predicted data with spare budget.
-7. **Read:** perform bounded positional reads; detect short reads and provider errors.
-8. **Decode:** dequantize only required tensor blocks into aligned bounded buffers.
-9. **Execute:** pass tensors to the supported backend and preserve required intermediate activations.
-10. **Release/cache:** recycle buffers or retain them under the cache budget.
-11. **Observe:** log bytes read, latency, queue depth, cache behavior and memory.
-12. **Recover:** interrupt safely on disconnect; never continue with missing or stale tensor data.
-
-The router must run before expert-specific fetches for that layer. Do not prefetch all experts as a fallback; that defeats sparse activation.
-
-## 5. Storage and package compatibility
-
-The first prototype should use an existing supported model representation if the selected backend can correctly represent this architecture and quantization. GGUF is a candidate only after verifying exact architecture/operator support and a valid conversion path for this model.
-
-GGUF stores tensor names, dimensions, types and data offsets in its metadata/index structure; the data section is aligned. This makes indexed access conceptually possible, but the actual Android provider must support reliable seekable reads.
-
-Source: https://github.com/ggml-org/ggml/blob/master/include/gguf.h
-
-Do not convert the model to GGUF merely because the format is convenient. First verify:
-- complete tensor coverage with no missing experts;
-- correct MoE routing and expert ordering;
-- numerical agreement with reference tensors;
-- backend operator coverage;
-- quantized output quality.
-
-If no existing format/backend pair supports the model correctly, define a minimal experimental indexed container only after the tensor inventory and read benchmark exist.
-
-## 6. Benchmark ladder
-
-### R0 — File I/O only
-Read known byte ranges from SSD, microSD and internal storage. Test sequential and random reads, cold/warm cache, block sizes, latency percentiles, short reads and disconnect.
-
-### R1 — Tensor reconstruction
-Read selected tensors and compare reconstructed values against trusted source within dtype/quantization tolerances.
-
-### R2 — Single-layer execution
-Execute one layer with known input activations and compare outputs to reference. Test shared tensors and MoE expert selection.
-
-### R3 — Full forward pass
-Run one complete forward pass on a host harness with bounded streaming. Verify logits against reference tolerances.
-
-### R4 — Multi-token decode
-Generate multiple tokens and record per-token bytes read, cache hit rate, p50/p95 latency and memory use.
-
-### R5 — Android port
-Repeat on target phone using the actual USB-C SSD, cable, enclosure and Android storage provider. Measure sustained performance, energy and thermals.
-
-## 7. Metrics that decide success
-
-Mandatory metrics:
-- model package bytes and tensor count;
-- storage bytes read per prompt and per generated token;
-- sequential throughput and random IOPS;
-- p50/p95/p99 read latency;
-- short-read, timeout and disconnect rates;
-- expert-cache hit/miss rate and evictions;
-- prefetch accuracy and wasted bytes;
-- peak managed/native/accelerator memory;
-- time-to-first-token and tokens/sec;
-- energy per generated token and thermal throttling;
-- output correctness against reference;
-- coding-task quality and quantization regression.
-
-A benchmark reporting only model load time or average tokens/sec is insufficient.
-
-## 8. Go/no-go rules
-
-- No model is marked supported until every tensor and expert is accounted for.
-- No storage provider is marked random-access capable until positional reads are tested under load.
-- No quantization is accepted solely because it fits on disk.
-- No streaming strategy is accepted without measuring bytes read per token.
-- No Android feasibility claim is made without a named device and sustained thermal test.
-- If storage I/O dominates token latency, prioritize cache/locality/quantization research before UI or agent feature work.
-
-## 9. Immediate work sequence
-
-1. Pin the official model revision and collect config/tokenizer/shard metadata.
-2. Build the model inventory and shard/hash verifier.
-3. Audit current conversion and inference backend support for this exact Qwen3 MoE architecture.
-4. Build a host-side random-read/tensor-reconstruction harness.
-5. Benchmark USB SSD and microSD on the target Android phone.
-6. Implement one-layer reference execution and MoE expert selection.
-7. Compare layer streaming, expert caching and hybrid scheduling.
-8. Only then decide whether a custom indexed package or advanced compression is justified.
-
-## 10. Unknowns
-
-- Exact phone, SoC, RAM, Android version and accelerator APIs.
-- SSD capacity, filesystem, bridge, cable and measured random-read performance.
-- Exact quantized artifact and its accuracy.
-- Backend/operator support for the precise model revision.
-- Actual per-layer tensor sizes and expert layout.
-- Sustainable memory budget after Android and app overhead.
-- Minimum acceptable tokens/sec and power/thermal envelope.
-
-These are inputs to the next detailed implementation plan, not assumptions to fill with invented values.
+## 9. Immediate sequence
+Pin official model/GGUF revisions; create host reference; test AirLLM/Transformers and recurrent state; test Q5_K_M GGUF with current llama.cpp; run shared correctness/tool suite; compare disk/RAM/accelerator/I/O/speed; then decide whether Android porting is justified.
