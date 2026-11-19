@@ -10,8 +10,8 @@
 - [x] Create initial Kotlin + Compose Android application scaffold.
 - [x] Add Android CI build, unit-test and lint workflow.
 - [x] Add experimental AirLLM host bridge with explicit security boundary.
-- [ ] Confirm exact target phone model, SoC, Android version and external-drive/filesystem details.
-- [ ] Obtain a green CI build and install the debug APK on the target phone.
+- [x] Confirm primary target profile: Moto G54 5G, 12 GB RAM, Android 15 (256 GB storage reported); SoC and external-drive/filesystem details remain to be measured.
+- [ ] Install the debug APK on the Moto G54 and capture a baseline memory/thermal profile.
 
 **Exit:** reproducible build, architecture contracts, model ADR and documented device assumptions.
 
@@ -25,8 +25,8 @@
 **Exit:** installable APK with offline UI and persistent conversations.
 
 ## Phase 2 — Verified local inference
-- [ ] Add one local model/runtime supported on the actual phone.
-- [ ] Measure memory, TTFT, tokens/sec, context, battery and sustained thermals.
+- [ ] Benchmark compact quantized models (initial candidate range: roughly 1B–3B parameters) on Moto G54; select one only after real-device validation.
+- [ ] Measure process/native memory, TTFT, tokens/sec, context, battery and sustained thermals; treat 12 GB as device RAM, not app-available RAM.
 - [ ] Implement import, hashes, resumability, SAF storage and bounded buffers.
 - [ ] Do not block a useful APK on Qwen3-Coder-Next.
 
@@ -73,4 +73,4 @@
 **Exit:** release checklist and public known limitations.
 
 ## Current priority
-Get the Android CI build green, install the first APK on the target phone, and validate the AirLLM host bridge on a CUDA host. In parallel, start conversation persistence and the typed inference interface. No Qwen3-Coder-Next or phone compatibility claims before measured evidence.
+Install the first APK on the Moto G54 (12 GB / Android 15), capture its baseline memory/thermal profile, and validate the AirLLM host bridge on a separate CUDA host. In parallel, start conversation persistence and the typed inference interface. No Qwen3-Coder-Next or phone compatibility claims before measured evidence.

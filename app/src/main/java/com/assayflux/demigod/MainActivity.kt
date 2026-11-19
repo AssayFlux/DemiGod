@@ -169,7 +169,7 @@ private fun TopBar() {
         Spacer(Modifier.weight(1f))
         Surface(color = Color(0xFF26382F), shape = RoundedCornerShape(50)) {
             Text(
-                "Preview",
+                "G54 target",
                 color = Color(0xFF9FE0B5),
                 fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)
@@ -314,11 +314,17 @@ private fun FilesWorkspace(modifier: Modifier = Modifier) {
         Text("▤", fontSize = 42.sp, color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(12.dp))
         Text("Project files", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text("Primary device profile", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp))
+        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(top = 14.dp)) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Moto G54 5G", fontWeight = FontWeight.SemiBold)
+                Text("12 GB RAM · Android 15 · 256 GB storage target", color = Color(0xFFB9A5FF), fontSize = 12.sp)
+                Text("Model loading stays disabled until a runtime checks available memory and the selected model requirements.", color = Color(0xFF969BAA), fontSize = 12.sp, lineHeight = 18.sp)
+            }
+        }
         Text(
-            "The Android project picker and Storage Access Framework integration are the next workspace milestone.",
-            color = Color(0xFF969BAA),
-            modifier = Modifier.padding(top = 8.dp),
-            lineHeight = 21.sp
+            "Project picker, Storage Access Framework, repository tree and editor are the next workspace milestone.",
+            color = Color(0xFF969BAA), modifier = Modifier.padding(top = 14.dp), lineHeight = 21.sp
         )
     }
 }

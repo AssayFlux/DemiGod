@@ -21,6 +21,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - name: Set up Python for AirLLM bridge validation
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate AirLLM bridge syntax
+        run: python -m py_compile airllm/server.py
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:

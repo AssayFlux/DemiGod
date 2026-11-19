@@ -1,6 +1,6 @@
 # Android platform adaptation and first implementation
 
-**Status:** Initial scaffold implemented; runtime and workspace integrations remain in progress.  
+**Status:** Initial scaffold implemented; Moto G54 5G / 12 GB / Android 15 is the primary target profile. Runtime and workspace integrations remain in progress.  
 **Date:** 2026-11-19
 
 ## Product interface
@@ -30,6 +30,18 @@ The first Compose app provides:
 
 Not implemented yet: persistent chat database, actual inference connection, streaming, full Markdown renderer, project SAF picker, file editor, terminal process runner, Git operations, model downloads, APK signing or release hardening.
 
+## Primary phone profile: Moto G54 5G
+
+The confirmed target configuration is Moto G54 5G, 12 GB RAM, Android 15 and 256 GB storage (capacity reported by the device owner). Treat 12 GB as physical-device RAM, not an app memory allowance: Android, vendor services, graphics and other apps consume a substantial share. The app must query runtime memory at launch and immediately before model load; never infer a safe model size from the RAM label alone.
+
+Initial mobile policy:
+- Keep the chat/workspace usable with no model installed and fully offline.
+- Start local-model evaluation with compact quantized coding/instruct models in the roughly 1B–3B parameter class; this is a benchmark candidate range, not a compatibility guarantee.
+- Benchmark multiple quantizations and context sizes. Measure peak PSS/RSS, native allocations, available memory, load time, TTFT, sustained tokens/sec, battery and thermal throttling on the actual handset.
+- Use conservative context defaults and an explicit model-load preflight. Reject or warn on insufficient memory; unload on memory pressure and handle process death.
+- Keep model files outside the APK. Support user-selected storage through SAF; test removable USB storage and seekability before claiming it works.
+- Qwen3-Coder-Next (80B total) remains a research target and is not a Moto G54 local deployment target.
+
 ## AirLLM integration boundary
 
 AirLLM lives in `airllm/` as a Python/PyTorch host experiment. It is not packaged in the APK and does not execute on the phone. The initial host bridge requires a locally downloaded, revision-pinned checkpoint, binds to loopback, requires a bearer token and exposes a non-streaming OpenAI-compatible chat endpoint. The Android app is not connected to it yet.
@@ -42,10 +54,10 @@ The terminal must be an isolated execution service, not unrestricted `Runtime.ex
 
 ## Next milestones
 
-1. Obtain a green Android CI build and install the debug APK on the target phone.
+1. Build and install the debug APK on the Moto G54 5G (12 GB, Android 15); capture a baseline memory/thermal profile.
 2. Add Room persistence and conversation export/delete.
 3. Add a typed inference contract, streaming event model and a deterministic mock provider.
-4. Add a verified local runtime adapter selected by actual device benchmark.
+4. Benchmark compact quantized models on the Moto G54 and add only a verified local runtime adapter that passes memory, quality and thermal gates.
 5. Run the pinned AirLLM host smoke tests and compatibility suite.
 6. Add SAF project browsing, bounded editor and reviewable patch application.
 7. Add sandboxed command execution and diff/apply/recovery.

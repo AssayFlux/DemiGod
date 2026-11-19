@@ -80,6 +80,8 @@ def _load_model() -> Any:
 
 
 def _complete(messages: list[dict[str, str]], max_tokens: int) -> str:
+    import torch
+
     model = _load_model()
     tokenizer = model.tokenizer
     prompt = tokenizer.apply_chat_template(

@@ -13,6 +13,10 @@ The first Kotlin + Jetpack Compose Android scaffold is now on `Heaven`. It inclu
 
 The next milestone is to get CI green and install the debug APK on the target Android phone. The current UI is a foundation, not a finished coding assistant.
 
+## Primary mobile target
+
+The confirmed target is **Moto G54 5G, 12 GB RAM, Android 15** (256 GB storage reported). The 12 GB figure is physical device RAM, not memory available to the app. Local inference will start with compact quantized model candidates and must pass real-device memory, speed, battery and thermal benchmarks. The app remains useful without a model installed. Qwen3-Coder-Next is a separate research target, not a promised Moto G54 workload.
+
 ## Model strategy
 
 - **Flagship research target:** [Qwen3-Coder-Next](https://huggingface.co/Qwen/Qwen3-Coder-Next), 80B total parameters / approximately 3B activated per token.
