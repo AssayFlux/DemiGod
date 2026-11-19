@@ -9,20 +9,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +56,32 @@ private enum class WorkspaceTab(val label: String, val glyph: String) {
 
 private data class ChatMessage(val id: Long, val fromUser: Boolean, val text: String)
 
+internal data class MessageSegment(
+    val text: String,
+    val language: String? = null,
+    val isCode: Boolean = false
+)
+
+internal fun parseMessageSegments(content: String): List<MessageSegment> {
+    val fence = Regex("```([\\w+#.-]*)[ \\t]*\\n([\\s\\S]*?)```")
+    val result = mutableListOf<MessageSegment>()
+    var cursor = 0
+    fence.findAll(content).forEach { match ->
+        if (match.range.first > cursor) {
+            result += MessageSegment(content.substring(cursor, match.range.first))
+        }
+        result += MessageSegment(
+            text = match.groupValues[2].trimEnd(),
+            language = match.groupValues[1].ifBlank { null },
+            isCode = true
+        )
+        cursor = match.range.last + 1
+    }
+    if (cursor < content.length) result += MessageSegment(content.substring(cursor))
+    if (result.isEmpty()) result += MessageSegment(content)
+    return result
+}
+
 @Composable
 private fun DemiGodTheme(content: @Composable () -> Unit) {
     MaterialTheme(
@@ -95,6 +117,7 @@ private fun DemiGodApp() {
             TopBar()
             when (selectedTab) {
                 WorkspaceTab.CHAT -> ChatWorkspace(
+                    modifier = Modifier.weight(1f),
                     messages = messages,
                     prompt = prompt,
                     onPromptChange = { prompt = it },
@@ -113,8 +136,8 @@ private fun DemiGodApp() {
                         }
                     }
                 )
-                WorkspaceTab.FILES -> FilesWorkspace()
-                WorkspaceTab.TERMINAL -> TerminalWorkspace()
+                WorkspaceTab.FILES -> FilesWorkspace(Modifier.weight(1f))
+                WorkspaceTab.TERMINAL -> TerminalWorkspace(Modifier.weight(1f))
             }
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 WorkspaceTab.entries.forEach { tab ->
@@ -158,20 +181,19 @@ private fun TopBar() {
 
 @Composable
 private fun ChatWorkspace(
+    modifier: Modifier = Modifier,
     messages: List<ChatMessage>,
     prompt: String,
     onPromptChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxSize().weight(1f)) {
+    Column(modifier = modifier.fillMaxWidth()) {
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            items(messages, key = { it.id }) { message ->
-                MessageBubble(message)
-            }
+            items(messages, key = { it.id }) { message -> MessageBubble(message) }
         }
         Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
             Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
@@ -202,7 +224,7 @@ private fun ChatWorkspace(
                 }
                 Spacer(Modifier.height(7.dp))
                 Text(
-                    "Model not connected · Your messages stay on this device in preview",
+                    "Model not connected · Preview mode",
                     color = Color(0xFF858A98),
                     fontSize = 10.sp
                 )
@@ -229,13 +251,53 @@ private fun MessageBubble(message: ChatMessage) {
             shape = RoundedCornerShape(18.dp),
             modifier = Modifier.fillMaxWidth(if (message.fromUser) 0.88f else 1f)
         ) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                parseMessageSegments(message.text).forEach { segment ->
+                    if (segment.isCode) {
+                        CodeBlockCard(segment)
+                    } else if (segment.text.isNotBlank()) {
+                        SelectionContainer {
+                            Text(
+                                segment.text,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 14.sp,
+                                lineHeight = 21.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeBlockCard(segment: MessageSegment) {
+    val clipboard = LocalClipboardManager.current
+    Surface(color = Color(0xFF0C0E13), shape = RoundedCornerShape(12.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    segment.language?.uppercase() ?: "CODE",
+                    color = Color(0xFF9B9FB0),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(Modifier.weight(1f))
+                IconButton(
+                    onClick = { clipboard.setText(AnnotatedString(segment.text)) },
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Text("Copy", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp)
+                }
+            }
             SelectionContainer {
                 Text(
-                    message.text,
-                    modifier = Modifier.padding(14.dp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    lineHeight = 21.sp
+                    segment.text,
+                    color = Color(0xFFD8DCE8),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp
                 )
             }
         }
@@ -243,9 +305,9 @@ private fun MessageBubble(message: ChatMessage) {
 }
 
 @Composable
-private fun FilesWorkspace() {
+private fun FilesWorkspace(modifier: Modifier = Modifier) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
+        modifier = modifier.fillMaxWidth().padding(24.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -262,8 +324,8 @@ private fun FilesWorkspace() {
 }
 
 @Composable
-private fun TerminalWorkspace() {
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+private fun TerminalWorkspace(modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth().padding(16.dp)) {
         Text("Terminal", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Text("Command execution is intentionally disabled in this preview.", color = Color(0xFF969BAA), fontSize = 12.sp)
         Spacer(Modifier.height(14.dp))
