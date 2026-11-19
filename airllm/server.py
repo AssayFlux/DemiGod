@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 MODEL_ID = os.getenv("DEMIGOD_MODEL_ID", "Qwen/Qwen3-Coder-Next")
-MODEL_PATH = Path(os.getenv("DEMIGOD_MODEL_PATH", "")).expanduser()
+MODEL_PATH_VALUE = os.getenv("DEMIGOD_MODEL_PATH", "").strip()
+MODEL_PATH = Path(MODEL_PATH_VALUE).expanduser()
 MODEL_REVISION = os.getenv("DEMIGOD_MODEL_REVISION", "")
 MODEL_CACHE = os.getenv("DEMIGOD_MODEL_CACHE", "./model-cache")
 HOST = os.getenv("DEMIGOD_HOST", "127.0.0.1")
@@ -96,7 +97,7 @@ def _complete(messages: list[dict[str, str]], max_tokens: int) -> str:
         padding=False,
     )
     input_ids = inputs["input_ids"].to(model.device)
-    with _generation_lock, __import__("torch").inference_mode():
+    with _generation_lock, torch.inference_mode():
         output = model.generate(
             input_ids,
             max_new_tokens=max(1, min(max_tokens, MAX_NEW_TOKENS)),
@@ -136,7 +137,7 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "ready" if _model is not None else "model_not_loaded",
                 "model": MODEL_ID,
                 "architecture": _model_architecture,
-                "local_snapshot_configured": bool(str(MODEL_PATH)),
+                "local_snapshot_configured": bool(MODEL_PATH_VALUE),
                 "revision_label_configured": bool(MODEL_REVISION),
                 "load_error": _load_error,
                 "android_runtime": False,
@@ -206,7 +207,7 @@ def main() -> None:
         raise SystemExit("Refusing to start without DEMIGOD_API_TOKEN.")
     if not MODEL_REVISION:
         raise SystemExit("Refusing to start without a pinned DEMIGOD_MODEL_REVISION.")
-    if not str(MODEL_PATH):
+    if not MODEL_PATH_VALUE:
         raise SystemExit("Set DEMIGOD_MODEL_PATH to a local, pinned model snapshot.")
     if HOST not in {"127.0.0.1", "localhost"}:
         print("WARNING: non-loopback bind requested. Use a trusted private network and TLS tunnel.")
