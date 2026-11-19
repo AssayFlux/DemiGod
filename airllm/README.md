@@ -1,42 +1,46 @@
 # DemiGod AirLLM host experiment
 
-This is a **host-side research adapter**, not an Android inference engine. It exposes a small OpenAI-compatible, non-streaming chat endpoint so the Android client can later connect through an explicitly configured and secured host connection.
+This is a **host-side research adapter**, not an Android inference engine. It exposes a small OpenAI-compatible, non-streaming chat endpoint for a future Android opt-in host connection.
 
-## Current support status
+## Compatibility status
 
 - Target under test: `Qwen/Qwen3-Coder-Next`.
-- AirLLM's documented API uses `from airllm import AutoModel` and `AutoModel.from_pretrained(...)`.
-- The fact that AirLLM supports other Qwen models does **not** prove this exact Qwen3-Coder-Next revision works.
-- The model's hybrid Gated DeltaNet/Gated Attention state, tokenizer template, multi-turn behavior and tool-call output must pass the smoke tests before compatibility is declared.
-- This initial bridge requires a CUDA host. It does not run on the owner's 11 GB Android phone.
-- The server does not stream tokens yet; the endpoint is intentionally a first integration milestone.
+- AirLLM's current generic path streams standard Transformers causal-LM layer modules; exact model compatibility still requires testing.
+- AirLLM's generic Qwen-family support is not proof that this model's hybrid Gated DeltaNet/Gated Attention state is correct.
+- The bridge currently requires a CUDA host by default. CPU execution is possible only when explicitly enabled and adequately provisioned; it may be impractically slow.
+- The endpoint is non-streaming and is not connected to the Android app yet.
+- A successful model load alone is not sufficient. Verify single-turn, multi-turn, recurrent-state preservation, tokenizer/template, tool calls and code-task correctness.
 
-## Install
+## Prepare a pinned local model snapshot
 
-Use a dedicated Python 3.11 environment on a CUDA-capable Linux host with a compatible PyTorch/CUDA installation. Install PyTorch for the host first, then:
+AirLLM's current `AutoModel` architecture detection does not reliably forward a revision parameter through every config-loading path. Therefore, download an exact Hugging Face commit into a local snapshot first; the service refuses to load a model without a local path and revision label.
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r airllm/requirements.txt
+
+export MODEL_REVISION=<EXACT_HUGGING_FACE_COMMIT_SHA>
+hf download Qwen/Qwen3-Coder-Next \
+  --revision "$MODEL_REVISION" \
+  --local-dir /models/qwen3-coder-next
 ```
 
-AirLLM may require a newer Transformers build for newer model architectures. Do not blindly upgrade Transformers in a production environment: record the exact AirLLM, Transformers, PyTorch, CUDA and model revisions for each successful run.
+AirLLM decomposes the checkpoint into layer shards on disk. Check available storage before starting; original checkpoint files and decomposed cache may coexist and can require substantial additional disk space. Do not put model files in the Android APK or phone internal storage.
 
-## Start
-
-Use a pinned Hugging Face commit SHA for reproducible testing:
+## Start the host bridge
 
 ```bash
 export DEMIGOD_MODEL_ID=Qwen/Qwen3-Coder-Next
-export DEMIGOD_MODEL_REVISION=<PINNED_HUGGING_FACE_COMMIT_SHA>
+export DEMIGOD_MODEL_PATH=/models/qwen3-coder-next
+export DEMIGOD_MODEL_REVISION="$MODEL_REVISION"
 export DEMIGOD_MODEL_CACHE=/fast-local-ssd/demigod-airllm
 export DEMIGOD_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 python airllm/server.py
 ```
 
-The server binds to `127.0.0.1:8765` by default. Do not expose it directly to the public internet. A phone-to-host connection must be explicitly configured and protected (prefer a private VPN or authenticated TLS reverse proxy). Keep source code and model prompts on the host unless the user opts in.
+The server binds to `127.0.0.1:8765` by default. Do not expose it directly to the public internet. A future phone-to-host connection must be explicitly configured and protected (prefer a private VPN or authenticated TLS reverse proxy). The current app does not connect to this server.
 
 ## Smoke test
 
@@ -50,8 +54,8 @@ curl -X POST http://127.0.0.1:8765/v1/chat/completions \
   -d '{"messages":[{"role":"user","content":"Return only: AIRLLM_SMOKE_OK"}],"max_tokens":32}'
 ```
 
-A successful health endpoint is not proof of model compatibility. Compatibility requires successful load, one-token generation, multi-turn generation with preserved recurrent state, tokenizer/chat-template checks, cancellation/recovery tests and coding-agent tool-call validation. Record peak host RAM/VRAM, disk footprint, bytes read, time-to-first-token, tokens/sec and thermal/power behavior.
+Record AirLLM, Transformers, PyTorch, CUDA, model revision, config/tokenizer hashes, peak host RAM/VRAM, disk footprint, bytes read, TTFT and sustained tokens/sec. Test multi-turn state, tool-call format and recovery after cancellation before declaring support.
 
-## Security notes
+## Security
 
-AirLLM's model-loading path and Transformers may import model implementation code depending on the selected model and installed versions. Use only the official model repository, pin its revision, inspect any remote code before execution, and run experiments in an isolated environment without secrets. The bridge requires a bearer token and refuses to start without one. Loopback binding is the default.
+AirLLM's current `AutoModel` implementation resolves model architecture with `trust_remote_code=True`. Model loading can therefore execute Python code from the local snapshot. Use only a reviewed, pinned official snapshot and run it in an isolated environment without credentials or unrelated private files. The bridge requires a bearer token, refuses to start without a pinned revision label and binds to loopback by default.
