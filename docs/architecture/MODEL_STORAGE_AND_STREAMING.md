@@ -8,7 +8,7 @@
 
 DemiGod must operate offline after installation of the app and model assets. It must support removable storage, bounded memory use, integrity verification, resumable imports and safe recovery from drive disconnection. It must not require extracting every model into internal phone storage.
 
-Storage capacity does not imply runtime feasibility. RAM, memory bandwidth, compute, accelerator support, context/KV-cache size, heat and battery consumption remain separate constraints. A 480B-class model is a research target, not a promise of practical phone inference.
+Storage capacity does not imply runtime feasibility. RAM, memory bandwidth, compute, accelerator support, context/KV-cache size, heat and battery consumption remain separate constraints. The selected flagship is Qwen3-Coder-480B-A35B-Instruct. Its complete checkpoint is the target for storage and streaming research, but practical phone inference is unproven. See [FLAGSHIP_480B_TARGET.md](FLAGSHIP_480B_TARGET.md) and [480B_DATA_READING_PLAN.md](../research/480B_DATA_READING_PLAN.md).
 
 ## 2. Three-tier storage design
 
